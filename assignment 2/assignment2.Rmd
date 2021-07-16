@@ -1,0 +1,104 @@
+---
+title: "assignment2"
+output: pdf_document
+---
+## Question 1
+## Part a
+```{r,echo=FALSE}
+library(knitr)
+library(broom)
+library(ggplot2)
+geyser <- read.csv('OldFaithful.csv')
+geyser$interval_centered <- geyser$Interval - mean(geyser$Interval)
+reg_model <- lm(Duration~interval_centered, data = geyser)
+tidy_model <- tidy(reg_model)
+kable(tidy_model)
+```
+
+Based on the results, we can see that the 'Interval' as a predictor is statistically significnat in response variable 'Duration', and our model predicts that the for a subsequent interval of 71 minutes, the duration of eruption will be 3.46 minutes. For every unit of increase in interval, the time duraiton of eruption will increase by 0.0686 minutes. Besides, this model explains about 73.44% of variation in this data set. 
+
+## Part b
+CI = 0.696 +- 2 * 0.004
+We can reject the null hypothesis because our confidence interval does not include 0. 
+
+## Part c
+```{r,echo=FALSE}
+#plot(reg_model$residuals~geyser$Interval)
+```
+According to the residual graph, we can see a quadratic pattern, which means that our linearity assumpiton is violated. 
+
+## Part d 
+```{r,echo=FALSE,message=FALSE}
+library(dplyr)
+geyser$date_factor <- factor(geyser$Date,labels =c('Day1','Day2','Day3','Day4','Day5','Day6','Day7','Day8'))
+reg_model2<- lm(Duration~interval_centered+date_factor, data = geyser)
+```
+Our results show that, compared to Day1 as the baseline, there is no significant difference in mean intervals for any of the days. 
+
+## Part e 
+```{r, echo=FALSE}
+#anova(reg_model,reg_model2)
+```
+Using ```anova()```, the F-test shows that the difference between these two models are not statistically significnat.
+
+## Part f
+```{r,echo=FALSE}
+# First set a seed to ensure your results are reproducible
+set.seed(123) # use whatever number you want
+# Now randomly re-shuffle the data
+Data <- geyser[sample(nrow(geyser)),]
+# Define the number of folds you want
+K <- 10
+# Define a matrix to save your results into
+RSME <- matrix(0,nrow=K,ncol=1)
+# Split the row indexes into k equal parts
+kth_fold <- cut(seq(1,nrow(Data)),breaks=K,labels=FALSE)
+# Now write the for loop for the k-fold cross validation
+for(k in 1:K){
+  # Split your data into the training and test datasets
+  test_index <- which(kth_fold==k)
+  train <- Data[-test_index,]
+  test <- Data[test_index,]
+  # train a model based on current train data and
+  # make predictions on current test data
+  train_model <- reg_model
+  test_predict <- predict(train_model, test)
+  # write your code for computing RMSE for each k here
+  test_residual <- test$Duration - exp(test_predict)
+  testMSE <- mean((test_residual)^2)
+  RSME[k,] <- sqrt(testMSE)
+}
+#Calculate the average of all values in the RSME matrix here.
+#mean(RSME)
+
+
+# RMSE for second model
+# First set a seed to ensure your results are reproducible
+set.seed(321) # use whatever number you want
+# Now randomly re-shuffle the data
+Data <- geyser[sample(nrow(geyser)),]
+# Define the number of folds you want
+K <- 10
+# Define a matrix to save your results into
+RSME <- matrix(0,nrow=K,ncol=1)
+# Split the row indexes into k equal parts
+kth_fold <- cut(seq(1,nrow(Data)),breaks=K,labels=FALSE)
+# Now write the for loop for the k-fold cross validation
+for(k in 1:K){
+  # Split your data into the training and test datasets
+  test_index <- which(kth_fold==k)
+  train <- Data[-test_index,]
+  test <- Data[test_index,]
+  # train a model based on current train data and
+  # make predictions on current test data
+  train_model <- reg_model2
+  test_predict <- predict(train_model, test)
+  # write your code for computing RMSE for each k here
+  test_residual <- test$Duration - exp(test_predict)
+  testMSE <- mean((test_residual)^2)
+  RSME[k,] <- sqrt(testMSE)
+}
+#Calculate the average of all values in the RSME matrix here.
+#mean(RSME)
+```
+The result shows that these our second model has decreased RMSE, meaning that compared after adding ```Day``` as a predictor, the predictive accuracy of the model has been enhanced, although this enhancement may not be statistically significant. 

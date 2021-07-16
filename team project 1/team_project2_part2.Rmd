@@ -1,0 +1,605 @@
+---
+title: "Team Orange Project 1 Part 2"
+output: pdf_document
+header-includes: 
+- \usepackage{graphicx}
+- \usepackage{float}
+---
+```{r echo=FALSE,warning=FALSE}
+ library(knitr)
+  opts_chunk$set(fig.path='figure/graphics-', 
+                 cache.path='cache/graphics-', 
+                 fig.align='center',
+                 external=TRUE,
+                 echo=TRUE,
+                 warning=FALSE,
+                 fig.pos='H'
+                )
+  a4width<- 8.3
+  a4height<- 11.7
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = NA, cache = FALSE, fig.width=5.5, fig.height=3.5)
+# load library
+library(kableExtra)
+library(tidyverse)
+library(knitr)
+library(tinytex)
+library(tidyr)
+library(broom)
+library(dplyr)
+library(gridExtra)
+library(GGally)
+library(xtable)
+library(Rmisc)
+library(car)
+library(ggplot2)
+library(rms)
+library(arm)
+library(pROC)
+library(e1071)
+library(caret)
+
+#import data
+lab <- read.csv('lalondedata.txt')
+
+#factorization and colllapsing
+lab$treat <- factor(lab$treat)
+lab$black <- factor(lab$black)
+lab$hispan <- factor(lab$hispan)
+lab$married <- factor(lab$married)
+lab$nodegree <- factor(lab$nodegree)
+lab$educ <- factor(lab$educ)
+lab$re74 <- as.numeric(lab$re74)
+lab$re75 <- as.numeric(lab$re75)
+lab$re78 <- as.numeric(lab$re78)
+
+levels(lab$educ) <- list('elementary'=c('0','1','2','3','4','5'), 'middle school'=c('6', '7', '8'), 'high school'=c('9', '10', '11', '12'), 'college and beyond' = c('13','14', '15', '16', '17', '18'))
+#Reseponse variable
+lab$employed78[lab$re78 > 0] <- 1
+lab$employed78[lab$re78 == 0] <- 0
+
+
+lab$employed78 <- factor(lab$employed78)
+
+lab$employed78_n <- as.integer(lab$employed78) -1
+```
+## 1. Summary
+This analysis aims to find out whether or not job training for disadvantaged workers had an effect on whether or not they can have positive wages using a subset of the data from the National Supported Work (NSW) containing only male participants from the 1970s. The analysis applies methods including but not limited to: preliminary screening using exploratory data analysis (EDA), model fitting using logistic regression with multiple predictors, model selection using BIC and ANOVA test and Chi-square test, model validation using binned residual plots, as well as model performance assessment using ROC curve and confusion matrix. Our final model shows that there is no evidence suggesting that workers who receive job training tend to be more likely to have positive wages than workers who do not receive job training.
+
+## 2. Introduction
+This analysis aims to explore if there is any evidence that workers who receive job training(`treat`) tend to be more likely to have positive wages than workers who do not receive job training. Our model also quantifies the effect of the job training by providing a 95% confidence interval for odds. In addition, it investigates if this effect differs by demographic groups, and points out other interesting associations with odds of having positive wages. Specifically, when a worker was trained, the older this worker was, the higher the odds of having a positive wage in 1978. Besides, this analysis also finds that black men were disproportionately disadvantaged in the job market, compared with men in other ethnicity groups who had identical attributes in age, training experience, and wage back in 1974. 
+
+## 3. Data
+In order to quantify the effect of job training(`treat`) on the odds of having positive wages, this analysis uses `employed78_n` as the predictor variable, which is encoded by whether or not the person had a positive wage in 1978. It also reassembles years of education to 4 groups: elementary(0-5), middle school(6-8), high school(9-12), and college and beyond(13-18) - as a way to better interpret the data and to reduce the effect of erroneous/missing values as well as imbalanced data distribution based on education. In addition, this analysis also uses a mean-centered version of the age variable in order to make intercept interpretation more comprehensible. Unlike `age`, `re74` is interpretable when the value is 0, which means that this person had no wage in 1974. Thus, we do not intend to center `re74`.
+
+### 3.1 EDA 
+To begin with, we assess the distribution of response variable by plotting a table of people who had positive wages and zero wages in 1978, finding that the number of people who were having positive wages were about three times as many as those who were not.
+
+First, we look at the EDA for the continuous variables: `age` and `re74`: 
+
+* The boxplot of `age` by `treat` shows a difference in the median values and distribution between trained and untrained workers, suggesting that `age` may be a significant variable to include when fitting the model. 
+* The boxplot of `re74` by `treat` shows a difference in the median values and distribution between trained and untrained workers, suggesting that `re74` may be an importnat variable to include when fitting the model.
+
+Next, we look at the EDA for the discrete variables: 
+
+* The table of `employed78_n` and `treat` shows no signifinant difference in the odds of having positive wages. 
+* The table of `employed78_n` and `edcu` implies that people who had a high school degree were most likely to have positive wages compared to people with other levels of education. However, this can be due to insufficient data for people who had education level other than high school, and this factor should be taken into consideration in model-fitting.  
+* The table of `employed78_n` and `black` shows that black men were less likely to have positive wages than men in other ethnicity groups.  
+* The table of `employed78_n` and `hispan` shows that hispanic men had a higher odds of having positive wages than non-hispanic men. Nevertheless, an important fact to note is that non-hispanic actually includes black men who were noticeably under-represented in the job market. Thus, the seemingly high odds of employment of `hispan` might be a result of inflated overall unemployement rate that all other ethnicity groups combined. 
+* The table of `employed78_n` and `married` shows that married men were more likely to have positive wages.
+* The table of `employed78_n` and `no-degree` shows that high school dropouts were less likely to have positive wages than those who had education level of high shcool or above. 
+
+Through visual inspection, all predictor variables are worth further statistical investigation.
+
+### 3.2 Explore Interaction Terms
+Because `nodegree` and `educ` contain similar information, there is no need to explore interactions between these two variables. Since we are interested in evidence that demonstrate a relationship between treat and employment, we then focus on the potential interactions among employment, treat, and other predictors.
+
+Same with EDA, we look at the interaction effect for the continuous variables first:
+
+* The boxplot of employment status and treat by age shows different age-employement patterns by treatment group in the median values, suggesting that `treat:age` may not be a significant interaction term to include when fitting the model.
+
+Next, we look at the interaction effect for the discrete variables: 
+
+* The contingency table between treat and employment by different education level shows that :
+    1. College graduates had higher probablity of employement when trained compared with those who did not receive the traning.
+    2. High school graduates had lower odds when trained compared with those who were not trained.
+    3. Middle school graduates had lower odds when trained compared with those who did not receive job traning.
+    4. Elementary school graduates who were trained all had positive wages, which could be attributed to the insuffficiency of data about this group.
+
+* The contingency table between treat and employment by black and non-black shows that :
+    1. Trained black had a slightly higher odds of having positive wages than black that were not trained.
+    2. The marginal increase of employment odds for trained non-black was much higher than those non-black who were not trained.
+
+* The contingency table between treat and employement by hispanic and non-hispanic shows that :
+    1. All trained hispanic men ended up getting hired.
+    2. Trained non-hispanic had decreased odds of having positive wages, which can be a reflection of an under-represented black community. 
+    
+* The contingency table between treat and employement by marital status shows that employment odds were higher for those who were married, and lower odds for those who were not.
+* The contingency table between treat and employement by no-degree status shows that employment odds were higher for trained workers with a highshcool degree or above, while the odds were lower for trained workers without a highschool degree.
+
+Through visual inspection on the potential interaction effect, the interaction between `age` and `treat` is most likely to be significant. However, EDA only offers a visual representation of the data, and the actual significance of each variable needs to be assessed by statistical tests. Specifically, if a predictor has been deemed significant through EDA but is dropped through model selection, we will perform ANOVA test to determine its statistical significance. 
+
+## 4. Model
+### 4.1 Model Validation
+We first center the age predictor variable so that it’s most meaningful to interpret the intercept. Then we build a naive model with all main effects including `age_c`, `educ`, `black`, `hispan`, `married`, `re74` and `nodegree`. From the summary output, age(centered), re74, edumiddle, and black are significant predictor variables. Next, we moved to model assessment using binned residual plots which map model residuals against predicted values and against continuous predictor variable.
+
+The residual plot between residuals and predicted values implies a trend that is somewhat quadratic, and this is worth taking notes when we get to our final model assessment. 
+The residual plot between residuals and centered age does not have any clear pattern, where points are randomly distributed both above and below zero. 
+
+As we get to model validation using confusion matrix with a threshold level of 0.5, we found that the model has a 0.78 accuracy but staggeringly different sensitivity and specificity: 0.98 and 0.10, respectively. In order to minimize the penalty on sensitivty, we decide to set the threshold at the mean value of `employed78_n` instead, and obtained an accuracy of 0.61, sensitivity and specificity of 0.61 and 0.60, respectively. 
+
+When examined using ROC, this naive model got an AUC value of 0.6558.
+
+Overall, the naive model summary shows that `age_c`, `re74`,`edumiddle`, and `black` are statistically significant predictor variables. Even though other predictor variables don't show any statistical significance, it could be that the linear relationship between each one of these variable is not strong enough to be detected by this sample. 
+
+### 4.2 Model Selection
+
+In this section, we perform model selection, with null_model only capturing the predictor that we or our client care about - treatment. And the full_model will include all main effects as well as all interactions between treat and other variables. If any variables that were previously deemed statistically significant are removed through the model selection process, we will perform ANOVA with Chi-square test on these terms to evaluate their significance. Because the data is not health related, we use BIC as our selection criterion as it is more strict at selecting variables, and False Negative (FN) as well as False Positive (FP) don't matter much in this case. 
+
+The results from backward and forward selection returned the same model, both using `age_c`, `treat`, `re74`, and `treat:age_c`  as  predictors. On the other hand, stepwise model selection return two predictors: `age_c` and `re74`. The next step of model selection is then to test whether or not `treat` and `treat:age_c` are signifncant predictors. We do so by running an ANOVA test using Chi-square between the stepwise model and two other models (treatagemodel and treatmodel) which only differ from the stepwise model by one term: `treat` or ` treat:age_c`. 
+
+The test between `treatmodel`and `BIC_stepwise_model`show that `treat` is not sifnicant with p-value = 0.79. The deviance test also shows that `treat` is not a valuable predictor for positive wage, given that deviance value only decreased by less than 1 unit with its presence in the new model. However, since it is our variable of interest, we decide to keep `treat` as part of our analysis. \
+
+The test between `treatagemodel`and `BIC_stepwise_model` show that `treat:age_c` is sifnicant with p-value = 0.0079. As a result, this interaction term is worth keeping in the final model. \
+
+
+However, given that BIC is only a criterion which does not determine the significance of a predictor. The next thing is to test predictor variables not recommended by BIC one at a time and compare the new model with our `BIC_forward_model` which works as a tentative baseline model. After testing variables besides the ones in the tentative model, we find that among `black`, `hispan`, `married`,`nodegree`, only the new model with `black` is significant in the ANOVA test. Thus, we will also include `black` into our tentative model despite the fact that BIC method filtered out this variable.\
+
+The last thing before finalizing the model is to test all interaction terms and look for ones that are statistically significant. 
+
+* Firstly, we create a different model that includes the interaction between `treat` and `educ` on top of the BIC_forward_model. The ANOVA test between these two has a p-value of 0.066, showing that this interaction term is not statistically sifnificant.
+* Next, we create a different model that includes the interaction between `treat` and `black` on top of the BIC_forward_model. The ANOVA test between these two has a p-value of 0.12, showing that this interaction term is not statistically significant.
+* Next, we create a different model that includes the interaction between `treat` and `married` on top of the BIC_forward_model. The ANOVA test between these two has a p-value of 0.47, showing that this interaction term is not statistically significant. 
+* Next, we create a different model that includes the interaction between `treat`and `nodegree` on top of the BIC_forward_model. The ANOVA test between these two has a p-value of 0.90, showing that this interaction term is not statistically significant. 
+* Next, we create a different model that includes the interaction between `treat`and `re74` on top of the BIC_forward_model. The ANOVA test between these two has a p-value of 0.13, showing that this interaction term is not statistically significant. 
+* Based on the information above, as none of these interaction terms are statistically significant, we decide to not include any one of these interaction terms. 
+
+Therefore, the final model will include `treat`, `age_c`, `re74`, `black` and `treat:age_c`.
+
+### 4.3 Final Model
+
+#### 4.3.1 Model Assessment 
+After fitting our final model, we use binned residual plots to first assess the overall model fitting, and then examine residuals against the two continuous variables in the model : `age_c` and `re75`. All three graphs turn out to have a random distribution of points, and the quadratic trend that appears in the naive model does not exist anymore. Besides, no outliers are spotted. Thus we can be confident that our model is valid. 
+
+Using confusion matrix, we find that at the mean employmed78_n level, our model has an accuracy of 60%, sensitivity at 0.61 and specificity at 0.60. The ROC curve shows that the final model has an AUC value of 0.64.
+
+In the end, we check for multicolinearity. As a rule of thumb, a VIF value that exceeds 5 or 10 indicates a problematic amount of collinearity. The VIF values of all the predictor variables are below 2, which suggests that there should be no multicolinearity issues.
+
+An important thing to note is that our final model in fact does not have a better performance compared with the naive model in terms of accuracy, sensitivity, specifificy, and AUC. It can be due to the fact that the naive model is overfitted to the data whereas the final model aims to generalize a trend from the data based on fewer predictors. As a result, we decide to move on with the final model which has higher external validity. 
+
+#### 4.3.2 Model Interpretation
+
+Final Model Equation: 
+
+$logit(\frac{\hat\pi_i}{1-\hat\pi_i}) = 1.084 + 0.5027 * \hat{treat1}-0.05374\hat{age_c}-0.00007079 * \hat{re74}-0.6217\hat{black1}-0.07340\hat{treat1:age_c}$ \
+
+
+Apart from `treat1` being the only predictor which has a p-value of 0.062, all other predictor variables (including the intercept) are significant at p-value < 0.05 significance level. After converting the coefficients to odds scale, the interpretations of all predictor variables are as follows:
+
+* intercept: For a male who is not black, untrained, at an average age, with an elementary education level, the odds for this person to have positive wages are expected to be 2.96.
+* treat: Holding all other variables constant, a perosn who received training was expected to have increased odds of having positive wages in 1978 by a factor 1.65. 
+* re74: Holding all other variables constant, every unit increase in the person's wage in 1974 is expected to increase the odds of this person having positive wages in 1978 by a factor of 1.000071. 
+* age_c: Holding all other variables constant, every unit increase in the person's age is expected to decrease the odds of this person having positive wages in 1978 by a factor of 0.95.
+* black1:  Holding all other variables constant, the odds of having positive wages for a man of black ethnicity are expected to decrease by a factor of 0.54.
+* treat1:age_c: With every year increase in age given the treatment, the odds of having positive wages are expected to increase by a factor of 1.076 on top of the effect that treat has, holding other variables constant. Similarly, compared with a person who was not trained, the odds of having positve wages for a trained person at the same age are expected to increase by 1.076 on top of the effect that age has on positive wages odds. \
+
+## 5. Conclusion
+
+To conclude from the final model, there is no evidence that supports the argument that workers who received job training tend to be more likely to have positive wages than those who did not. As we interpreted above, compared to `treat0`(non-trained workers), the odds of having non-zero wages for treat1(trained workers) are expected to increase by a factor of 1.65 from 1974 to 1978, holding other variables constant. According to the 95% confidence interval of treat1 from the final model, a likely range of the multiplicative effect that `treat` has on having positive wages in 1978 is between \ 0.98 and 2.82.In addition, there is evidence to suggest that the effects of job training differ by demographic groups. This can be seen from the both the main effect of `age` and the interaction effect between `treat1:age_c`. Looking at `age` alone, the older the man was, the lower the odds were for him to have positive wages in 1978. However, when controlling for treatment (i.e., for trained workers), the older one was, the more likely one would have positive wages in 1978. Thus, we may conclude that older men mgiht benefit more from receiving the training than younger people in terms of having non-zero wages. 
+
+An interesting finding regarding having non-zero wages is that it is highly correlated with one's wage in 1974. This is also valid intuitively, given that people who had higher wages in 1974 were more likely to be competitive in the job market, and thus it was more likely for them to have positive wages in 1978. 
+
+Another important finding can be derived from the multiplicative effect that `black` has on employment. Based on the summary output from the final model, it is noticeable that holding all other variables constant, being a member of the black community is expected to decrease this person's odds of having positive wages in 1978 by 0.54, with a 95% confidence interval from 0.33 to 0.87. This model output reflects a situation where black men were significantly disadvantaged in the job market, even with identical attributes in other categories such as age and traning status. This result opens up a window for observing racial inequality in the labor market, as well as setting a standard to which we can compare recent data to examine progress or improvement on such inequalities. 
+
+It is also important to note that there are some limitations in our model and model analysis. First, our model is based on a subset of data where only male participants were included. Perhaps a more comprehensive analysis including information on female participants and other possible predictors will lead to a better model and understanding of the relationships in the data. Besides, the classification of `black` and `hispan` in our data are dichotomoou, which simply divides people into either belonging to one ethnicity group or not. This practice makes it easier to have inflated positive wage odds for Hispanic people, given that non-hispanic group actually includes African American who are disproportionately disadvantaged in the job market. 
+\newpage
+
+## Appendix
+### EDA
+#### EDA with continuous variables
+\
+```{r echo=TRUE}
+ggplot(lab,aes(x=employed78, y=age, fill=employed78)) +
+  geom_boxplot() + coord_flip() +
+  scale_fill_brewer(palette="Blues") +
+  labs(title="age vs having positive wages78",
+       x="employed",y="age") + 
+  theme_classic() + theme(legend.position="none")
+```
+\
+
+
+
+\
+```{r echo=TRUE}
+ggplot(lab,aes(x=employed78, y=re74, fill=employed78)) +
+  geom_boxplot() + coord_flip() +
+  scale_fill_brewer(palette="Blues") +
+  labs(title="re74 vs having positive wages78",
+       x="employed",y="anual total income 1974") + 
+  theme_classic() + theme(legend.position="none")
+```
+\
+\newpage
+
+
+
+#### EDA with discrete variables
+\
+Employed vs Treat:
+```{r echo=TRUE}
+kable(apply(table(lab[,c("employed78","treat")])/sum(table(lab[,c("employed78","treat")])),
+      2,function(x) x/sum(x)),caption = 'Employed78 vs. Treat')
+```
+Employed vs Education:
+```{r echo=TRUE}
+kable(apply(table(lab[,c("employed78","educ")])/sum(table(lab[,c("employed78","educ")])),
+      2,function(x) x/sum(x)),caption = 'Employed78 vs. Education')
+```
+Employed vs Black:
+```{r echo=TRUE}
+kable(apply(table(lab[,c("employed78","black")])/sum(table(lab[,c("employed78","black")])),
+      2,function(x) x/sum(x)), caption = 'Employed78 vs. Black')
+```
+Employed vs. Hispanic:
+```{r echo=TRUE}
+kable(apply(table(lab[,c("employed78","hispan")])/sum(table(lab[,c("employed78","hispan")])),
+      2,function(x) x/sum(x)),caption = 'Employed78 vs. Hispanic')
+```
+Employed vs Marrid:
+```{r echo=TRUE}
+kable(apply(table(lab[,c("employed78","married")])/sum(table(lab[,c("employed78","married")])),
+      2,function(x) x/sum(x)),caption = 'Employed78 vs. Marital Status')
+```
+Employed vs NoDegree:
+```{r,echo=TRUE}
+kable(apply(table(lab[,c("employed78","nodegree")])/sum(table(lab[,c("employed78","nodegree")])),
+      2,function(x) x/sum(x)),caption = 'Employed78 vs. NoDegree')
+```
+\
+\newpage
+
+#### Interaction 
+\
+```{r echo=TRUE}
+ggplot(lab,aes(x=employed78, y=age, fill=employed78)) +
+  geom_boxplot() + coord_flip() +
+  scale_fill_brewer(palette="Blues") +
+  labs(title="age vs having positive wages78",
+       x="employed",y="age") + 
+  theme_classic() + theme(legend.position="none") + facet_wrap(~treat)
+```
+\
+\newpage
+
+\
+```{r echo=TRUE}
+ggplot(lab,aes(x=employed78, y=re74, fill=employed78)) +
+  geom_boxplot() + coord_flip() +
+  scale_fill_brewer(palette="Blues") +
+  labs(title="treat vs having positive wages78",
+       x="employed",y="age") + 
+  theme_classic() + theme(legend.position="none") + facet_wrap(~treat)
+```
+\
+\newpage
+
+\
+```{r echo=TRUE}
+college_lab <- subset(lab, educ == "college and beyond")
+highschool_lab <- subset(lab, educ == "high school")
+middle_lab <- subset(lab, educ == "middle school")
+elementry <- subset(lab, educ == "elementary")
+```
+Employed78 vs Treat by Educ:
+```{r echo=TRUE}
+kable(apply(table(college_lab[,c("employed78","treat")])/sum(table(college_lab[,
+      c("employed78","treat")])), 2,function(x) x/sum(x)),
+      caption = "Treat vs. College Degree")
+```
+
+```{r echo=TRUE}
+kable(apply(table(highschool_lab[,c("employed78","treat")])/sum(table(highschool_lab[,
+      c("employed78","treat")])), 2,function(x) x/sum(x)),
+      caption = "Treat vs. Highschool Degree")
+```
+
+```{r echo=TRUE}
+kable(apply(table(middle_lab[,c("employed78","treat")])/sum(table(middle_lab[,
+      c("employed78","treat")])), 2,function(x) x/sum(x)),
+      caption = "Treat vs. Middleschool Degree")
+```
+
+```{r echo=TRUE}
+kable(apply(table(elementry[,c("employed78","treat")])/sum(table(elementry[,
+      c("employed78","treat")])),2,function(x) x/sum(x)),
+      caption = "Treat vs. Elementary School Degree")
+```
+Employed78 vs Treat by Black:
+
+```{r echo=TRUE}
+black_lab <- subset(lab, black == 1)
+noblack_lab <- subset(lab, black == 0)
+
+kable(apply(table(black_lab[,c("employed78","treat")])/sum(table(black_lab[,
+      c("employed78","treat")])),2,function(x) x/sum(x)),
+      caption = "Treat vs. Black")
+```
+
+```{r echo = TRUE}
+kable(apply(table(noblack_lab[,c("employed78","treat")])/sum(table(noblack_lab[,
+      c("employed78","treat")])),2,function(x) x/sum(x)),
+      caption = "Treat vs. NonBlack")
+```
+Employed78 vs Treat by Hispan:
+
+```{r echo=TRUE}
+hisp_lab <- subset(lab, hispan == 1)
+nohisp_lab <- subset(lab, hispan == 0)
+
+kable(apply(table(hisp_lab[,c("employed78","treat")])/sum(table(hisp_lab[,
+      c("employed78","treat")])),2,function(x) x/sum(x)),
+      caption = "Treat vs. NonHispanic")
+```
+
+```{r echo=TRUE}
+kable(apply(table(nohisp_lab[,c("employed78","treat")])/sum(table(nohisp_lab[,
+      c("employed78","treat")])),2,function(x) x/sum(x)),
+      caption = "Treat vs. NonHispanic")
+```
+Employed78 vs Treat by Married:
+```{r echo=TRUE}
+married_lab <- subset(lab, married == 1)
+nomarried_lab <- subset(lab, married == 0)
+
+kable(apply(table(married_lab[,c("employed78","treat")])/sum(table(married_lab[,
+      c("employed78","treat")])),2,function(x) x/sum(x)),caption = "Treat vs. Married")
+```
+
+```{r echo=TRUE}
+kable(apply(table(nomarried_lab[,c("employed78","treat")])/sum(table(nomarried_lab[,
+      c("employed78","treat")])),2,function(x) x/sum(x)),caption = "Treat vs. NotMarried")
+```
+Employed78 vs Treat by Nodegree:
+```{r echo=TRUE}
+degree_lab <- subset(lab, nodegree == 0)
+nodegree_lab <- subset(lab, nodegree == 1)
+
+kable(apply(table(degree_lab[,c("employed78","treat")])/sum(table(degree_lab[,
+      c("employed78","treat")])),2,function(x) x/sum(x)), caption = "Treat vs. Degree")
+```
+
+```{r echo=TRUE}
+kable(apply(table(nodegree_lab[,c("employed78","treat")])/sum(table(nodegree_lab[,
+      c("employed78","treat")])),2,function(x) x/sum(x)),  caption = "Treat vs. Nodegree")
+```
+\newpage
+
+### Naive Model
+
+\
+```{r,echo=TRUE}
+lab$age_c <- lab$age - mean(lab$age)
+labreg <- glm(employed78 ~ age_c + re74 + treat + educ + black + hispan + married + nodegree, 
+              data = lab, family = binomial)
+summary = tidy(labreg)
+kable(summary,format='markdown', booktabs = T, linesep = "", escape = F, caption = "Naive Model Summary", digits=4)
+rawresid1 <- residuals(labreg,"resp")
+```
+\
+\
+```{r, echo=TRUE}
+binnedplot(x=fitted(labreg),y=rawresid1,xlab="Pred. probabilities",
+           col.int="red4",ylab="Avg. residuals",main="Residual vs Fitted",col.pts="navy")
+```
+\
+\
+```{r echo=TRUE}
+binnedplot(x=lab$age_c,y=rawresid1,xlab="age centered",
+           col.int="red4",ylab="Avg. residuals",main="Residual vs Age",col.pts="navy")
+
+```
+\
+\
+```{r echo=TRUE}
+binnedplot(x=lab$re74,y=rawresid1,xlab="re74",
+           col.int="red4",ylab="Avg. residuals",main="Residual vs Re74",col.pts="navy")
+```
+\
+\
+Using 0.5 threshold:
+```{r echo=TRUE}
+Conf_mat <- confusionMatrix(as.factor(ifelse(fitted(labreg) >= 0.5, "1","0")),
+                            as.factor(lab$employed78),positive = "1")
+kable(Conf_mat$table, caption='Confusion Matrix')
+kable(Conf_mat$overall["Accuracy"])
+kable(Conf_mat$byClass[c("Sensitivity","Specificity")])
+```
+\
+\
+Change to mean threshold:
+```{r  echo=TRUE}
+Conf_mat <- confusionMatrix(as.factor(ifelse(fitted(labreg) >= mean(lab$employed78_n), "1","0")),
+                            as.factor(lab$employed78_n),positive = "1")
+
+invisible(roc(lab$employed78_n,fitted(labreg),plot=T,print.thres="best",legacy.axes=T,
+    print.auc =T,col="red3"))
+kable(Conf_mat$table, caption='Confusion Matrix')
+kable(Conf_mat$overall["Accuracy"])
+kable(Conf_mat$byClass[c("Sensitivity","Specificity")])
+
+```
+\newpage
+
+### Model Selection
+
+A full model with all interactions
+```{r  echo=TRUE}
+labreg1 <- glm(employed78 ~ age_c + treat + educ+ re74 + black + hispan + married + nodegree 
+      + age_c:treat + treat:educ + treat:black + treat:hispan + treat:married + treat:nodegree +treat:re74, data = lab, family = binomial)
+summary = tidy(labreg1)
+kable(summary)
+n <- nrow(lab)
+null_model <- glm(employed78~treat,data=lab,family=binomial)
+```
+
+Using stepwise BIC:
+```{r  echo=TRUE}
+BIC_stepwise_model <- step(null_model,scope=formula(labreg1),direction="both",
+     trace=0,k = log(n))
+BIC_stepwise_model$call
+```
+Using forward BIC: 
+```{r  echo=TRUE}
+BIC_forward_model <- step(null_model,scope=formula(labreg1),direction="forward",
+                           trace=0,k = log(n))
+BIC_forward_model$call
+```
+Using backward BIC:
+```{r  echo=TRUE}
+BIC_backward_model <- step(labreg1,scope=formula(labreg1),direction="backward",
+                          trace=0,k = log(n))
+BIC_backward_model$call
+```
+Test of treat:age is significant:
+```{r  echo=TRUE}
+treatagemodel=glm(formula = employed78 ~ treat:age_c + age_c + re74, 
+               family = binomial, data = lab)
+kable(anova(BIC_stepwise_model, treatagemodel, test= "Chisq"))
+```
+Test of treat is significant:
+```{r  echo=TRUE}
+treatmodel=glm(formula = employed78 ~ treat + age_c + re74, 
+               family = binomial, data = lab)
+kable(anova(BIC_stepwise_model, treatmodel, test= "Chisq"))
+```
+Test if black is significant:
+```{r  echo=TRUE}
+blackmodel=glm(formula = employed78 ~ treat + age_c + re74 + black + treat:age_c, 
+               family = binomial, data = lab)
+kable(anova(BIC_forward_model, blackmodel, test= "Chisq"))
+```
+Test if hispan is significant:
+```{r  echo=TRUE}
+hispanmodel=glm(formula = employed78 ~ treat + age_c + re74 + hispan + treat:age_c, 
+               family = binomial, data = lab)
+kable(anova(BIC_forward_model, hispanmodel, test= "Chisq"))
+```
+Test if married is significant:
+```{r  echo=TRUE}
+marriedmodel=glm(formula = employed78 ~ treat + age_c + re74 + married + treat:age_c, 
+               family = binomial, data = lab)
+kable(anova(BIC_forward_model, marriedmodel, test= "Chisq"))
+```
+Test if nodegree is significant:
+```{r  echo=TRUE}
+nodegreemodel=glm(formula = employed78 ~ treat + age_c + re74 + nodegree + treat:age_c, 
+                 family = binomial, data = lab)
+kable(anova(BIC_forward_model, nodegreemodel, test= "Chisq"))
+```
+Add black to the model:
+```{r  echo=TRUE}
+labreg2 = glm(formula = employed78 ~ treat + age_c + re74 + black + treat*age_c, 
+              family = binomial, data = lab)
+
+```
+Test if any other interaction is significant:
+
+treat:educ
+```{r  echo=TRUE}
+inter1model = glm(employed78 ~ treat + age_c + black+ re74 + treat*age_c  + treat*educ , 
+                  family = binomial, 
+                  data = lab)
+kable(anova(inter1model, labreg2, test= "Chisq"))
+```
+treat:black
+```{r  echo=TRUE}
+inter2model = glm(employed78 ~ treat + age_c + black+ re74 + treat*age_c+ treat*black , 
+                  family = binomial, data = lab)
+kable(anova(inter2model, labreg2, test= "Chisq"))
+```
+treat:hispan
+```{r  echo=TRUE}
+inter3model = glm(employed78 ~ treat + age_c + black+ re74 +treat*age_c+ treat*hispan , 
+                  family = binomial, data = lab)
+kable(anova(inter3model, labreg2, test= "Chisq"))
+```
+treat:married
+```{r  echo=TRUE}
+inter4model = glm(employed78 ~ treat + age_c + black+ re74 + treat*age_c+ treat*married ,
+                  family = binomial, data = lab)
+kable(anova(inter4model, labreg2, test= "Chisq"))
+```
+treat:nodegree
+```{r  echo=TRUE}
+inter5model = glm(employed78 ~ treat + age_c + black+ re74 + treat*age_c + treat*nodegree , 
+                  family = binomial, data = lab)
+kable(anova(inter5model, labreg2, test= "Chisq"))
+```
+treat:re74
+```{r  echo=TRUE}
+inter6model = glm(employed78 ~ treat + age_c + black+ re74 + treat*age_c + treat*re74 , 
+                  family = binomial, data = lab)
+kable(anova(inter6model, labreg2, test= "Chisq"))
+```
+\newpage
+
+### Final Model
+
+#### Model Summary
+
+
+```{r}
+summary = tidy(labreg2)
+kable(summary,format='markdown', booktabs = T, linesep = "", escape = F, caption = "Final Model Summary", digits=4)
+
+```
+
+#### Confidence Interval
+
+
+```{r}
+kable(confint(labreg2),format='markdown', booktabs = T, linesep = "", escape = F, caption = "Final Model Confidence Interval", digits=4)
+```
+
+#### Model Validation 
+
+
+```{r echo=TRUE}
+rawresid5 <- residuals(labreg2,"resp")
+binnedplot(x=fitted(labreg2),y=rawresid5,xlab="Pred. probabilities",
+           col.int="red4",ylab="Avg. residuals",main="Residuals vs Fitted",col.pts="navy")
+```
+
+```{r echo=TRUE}
+binnedplot(x=lab$age_c,y=rawresid5,xlab="age centered",
+           col.int="red4",ylab="Avg. residuals",main="Residuals vs Age",col.pts="navy")
+```
+
+```{r echo=TRUE}
+binnedplot(x=lab$re74,y=rawresid5,xlab="re74",
+           col.int="red4",ylab="Avg. residuals",main="Residuals vs Re74",col.pts="navy")
+```
+
+
+#### Model Assessment
+
+Model performance:
+```{r echo=TRUE}
+Conf_mat <- confusionMatrix(as.factor(ifelse(fitted(labreg2) >= mean(lab$employed78_n), "1","0")),
+                            as.factor(lab$employed78_n),positive = "1")
+kable(Conf_mat$table,caption = 'Confusion Matrix')
+kable(Conf_mat$overall["Accuracy"])
+kable(Conf_mat$byClass[c("Sensitivity","Specificity")])
+```
+Check for multicolinearity:
+```{r echo=TRUE}
+kable(vif(labreg2),caption='VIF')
+```
+ROC:
+```{r,echo=FALSE}
+invisible(roc(lab$employed78_n,fitted(labreg2),plot=T,print.thres="best",legacy.axes=T,#AUC:0.60
+    print.auc =T,col="red3"))
+```

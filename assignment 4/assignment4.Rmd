@@ -1,0 +1,257 @@
+---
+title: "702 Assignment IVV"
+output: pdf_document
+header-includes: 
+- \usepackage{graphicx}
+- \usepackage{float}
+---
+
+# Question 1
+
+## Data Inspection
+```{r echo=FALSE,warning=FALSE}
+ library(knitr)
+  opts_chunk$set(fig.path='figure/graphics-', 
+                 cache.path='cache/graphics-', 
+                 fig.align='center',
+                 external=TRUE,
+                 echo=TRUE,
+                 warning=FALSE,
+                 fig.pos='H'
+                )
+  a4width<- 8.3
+  a4height<- 11.7
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = NA, cache = FALSE, fig.width=5.5, fig.height=3.5)
+tree <- read.csv("/Users/fengyi111/Desktop/2020-Fall/702/assignment-4/treeage.txt",header = TRUE)
+# load library
+library(mice)
+library(ggplot2)
+library(naniar)
+library(VIM)
+library(lattice) 
+library(pander)
+```
+
+After loading the tree.txt, we randomly assign 30% of the age data to be NaN values. 
+
+```{r}
+# randomly replace age values in 6 observations with NA
+set.seed(123)
+missing_index = sample(1:20, 6, replace = TRUE)
+tree[missing_index,3] <- NA
+```
+
+```{r, echo = FALSE}
+# randomly replace age values in 6 observations with NA
+kable(tree)
+```
+
+## Imputation
+
+First, we look at stripplot to examine the distribution of imputed values compared to the observed values. Using 'norm'argument, it turns out that our imputed values have much larger variance than the actual data. 
+
+```{r, echo = FALSE}
+tree_imp <- mice(tree,m=50, defaultMethod=c("norm","logreg","polyreg","polr"),
+                    print=F)
+stripplot(tree_imp, col=c("grey","darkred"),pch=c(1,20))
+```
+
+In order to examine the quality of imputation, we randomly select dataset 7 and 17 from the 50 imputed complete dataset. 
+
+```{r, echo = FALSE}
+d7 <- complete(tree_imp, 7)
+d17 <- complete(tree_imp, 17)
+```
+
+Using scatter plot to examine the relationship between ```diameter``` and imputed ```age``` across dataset 7, 17, and original data, we observe a similar positive correlation between the two variables.
+
+```{r, echo=FALSE}
+d7$group = "Dataset 7"
+d17$group = "Dataset 17"
+tree$group = "Original"
+df = rbind(d7, d17, tree)
+
+#trend
+ggplot(data=df, aes(x=diameter,y=age,color=group)) + 
+  geom_point() + 
+  geom_smooth(method='lm',level=0) + 
+  theme(legend.position = 'bottom')
+```
+
+Using density plot, we can inspect the how much our imputed age values overlap with the observed values. Intuitively, the more the overlap there is, the better the quality our imputed values are, since it signals that they approximate the true values.
+
+```{r, echo = FALSE}
+
+ggplot(data=df, aes(x=age,fill=group)) + 
+  geom_density(alpha=0.5) + 
+  theme(legend.position = 'bottom')
+```
+
+Via visual inspection, our two randomly drawn imputed ```age``` values well approximate the observed values, and the relationship between ```age``` and ```diameter``` is preserved.
+
+
+
+## Model 
+
+Before fitting a linear model on our full dataset, we can fit the regression model on one of the selected dataset to check for linear regression assumptions beforehand. This is done on dataset 17. 
+
+```{r, echo = FALSE}
+# fit linear regression model on one of two randomly selected data
+treeregd17 <- lm(age~diameter, data = d17) 
+#summary(treeregd17)
+
+# model diagnostic
+# d7
+# random pattern, so linearity assumption is satisfied 
+# plot(treeregd7$residual,x=d7$diameter,xlab="Diameter",ylab="Residual"); abline(0,0)
+plot(treeregd17,which=1)
+plot(treeregd17,which=2)
+plot(treeregd17,which=3)
+
+```
+
+
+Based on the residual vs. fitted plot and QQ plot, we are confident that our assumptions of linearity, equal variance, and indepence are satisfied on dataset 17, showing that our imputed data are likely to meet linear regression assumptions. 
+
+## Pooling
+
+```{r, echo = FALSE}
+treereg_imp <- with(data=tree_imp, lm(diameter~age))
+tree_reg <- pool(treereg_imp)
+# the overall estimate of coefficient is close to what we've observed in the two specific dataset
+summary = tidy(tree_reg) 
+kable(summary, format='markdown', booktabs = T, linesep = "", escape = F, caption = "Final Imputation Model", digits=4)
+```
+Using the multiple imputation combining rules to do the regression of age on diameter, we find that the coefficient of age (= 0.05) as a predictor for diameter is statistically significant (p < 0.05), with a confidence level of (0.03, 0.08). Our intercept is 3.59, which is also statistically significant (p < 0.05). It means that for any given tree at age 0, the predicted diameter is 3.59 cm. It shows that with every unit increase age, the diameter of the tree is predicted to increase by 0.05 cm. 
+Overall, this regression model summary shows that there is a positive correlation between age and diameter, and this relationship is statistically significant given our pooled data. However, our limited sample size can potentially undermine the validity of our conclusion, and the quality of imputed values can be further investigated. 
+
+
+# Question 2 
+
+## Imputation
+
+We use the nhanes data to investigate the relationship between Body Mass Index and potential predictors. To deal with the missing values, we use multiple imputation approach, with 'pmm' argument to create 10 imputed datasets. In this case, we prefer 'pmm' instead of 'norm' as an effort to avoid incurring negative values of age in imputed datasets. 
+
+```{r, echo=FALSE}
+nhanes <- read.csv("/Users/fengyi111/Desktop/2020-Fall/702/assignment-4/nhanes.csv",header = TRUE, na.strings = c('.',NA))
+nhanes = nhanes[, !names(nhanes) %in% c('wtmec2yr','sdmvstra','sdmvpsu','ridageyr')]
+
+nhanes$riagendr <- factor(nhanes$riagendr)
+nhanes$ridreth2 <- factor(nhanes$ridreth2)
+nhanes$dmdeduc <- factor(nhanes$dmdeduc)
+nhanes$indfminc<- factor(nhanes$indfminc)
+#summary(nhanes)
+```
+```{r, echo=FALSE}
+nhanes <- read.csv("/Users/fengyi111/Desktop/2020-Fall/702/assignment-4/nhanes.csv",header = TRUE, na.strings = c('.',NA))
+nhanes = nhanes[, !names(nhanes) %in% c('wtmec2yr','sdmvstra','sdmvpsu','ridageyr')]
+
+nhanes$riagendr <- factor(nhanes$riagendr)
+nhanes$ridreth2 <- factor(nhanes$ridreth2)
+nhanes$dmdeduc <- factor(nhanes$dmdeduc)
+nhanes$indfminc<- factor(nhanes$indfminc)
+#summary(nhanes)
+```
+
+
+```{r, echo=FALSE}
+nhanes_imp <- mice(nhanes,m=10, defaultMethod=c("pmm","logreg","polyreg","polr"),
+                 print=F)
+
+# select two complete datasets 
+n3 <- complete(nhanes_imp, 3);
+n10 <- complete(nhanes_imp, 10); 
+```
+
+
+In order to examine the quality of imputed data, dataset 3 and dataset 10 were randomly chosen. By plotting the relationship between ```bmxbmi``` and ```age``` across dataset 3, dataset 10, and the original data, we find that the linear relationship is consistent. The distribution of  ```bmxbmi``` across ```riagendr``` groups are also consistent across the three datasts. Besides, the density plot of ```age``` shows that our imputed ```age``` highly overlap with the observed values. As a result, we are confident about the quality of our imputed values. 
+
+
+```{r, echo = FALSE}
+n3$group = "Dataset 3"
+n10$group = "Dataset 10"
+nhanes$group = "Original"
+df_nhanes = rbind(n3, n10, nhanes)
+
+#trend
+ggplot(data=df_nhanes, aes(x=age,y=bmxbmi,color=group)) + 
+  geom_smooth(method='lm',level=0) + 
+  theme(legend.position = 'bottom')
+
+ggplot(data=df_nhanes, aes(x=riagendr,y=bmxbmi,color=group)) + 
+  geom_boxplot() + 
+  #geom_smooth(method='lm',level=0) + 
+  theme(legend.position = 'bottom')
+
+#overlap
+ggplot(data=df_nhanes, aes(x=age,fill=group)) + 
+  geom_density(alpha=0.5) + 
+  theme(legend.position = 'bottom')
+
+```
+
+
+## Model
+
+Given our research interest, we then fit a linear model on imputed data 3 using ```age```, ```riagendr```, ```ridreth2```, ```dmdeduc``` as predictors of ```bmxbmi```. Since we are also interested in whether or not education and gender will have interaction effect on ```bmxbmmi```, an interaction term ```dmdeduc:riagendr``` is also included. We find that regression assumptions, including equal variance and especially normality are violated. Thus, we consider transforming our response variable to log scale in order to mitigate the skewness. 
+
+```{r, echo = FALSE}
+# fit model 
+nhanes_reg <- lm(bmxbmi~age+riagendr+ridreth2+ dmdeduc  + dmdeduc:riagendr,data = n3)
+plot(nhanes_reg,which = 2)
+# assumptions violated, going to transform data 
+```
+
+After using log-scale ```bmxbmi``` as the response variable, we find that the issue of assumption violation is greatly alleviated. Thus, we decide to conduct our analysis on log-bmxbmi scale. 
+
+
+```{r, echo = FALSE}
+# fit model 
+nhanes_log_reg <- lm(log(bmxbmi)~age+riagendr+ridreth2 + dmdeduc + dmdeduc:riagendr,data = n3)
+plot(nhanes_log_reg,which = 2)
+# assumptions violated, going to transform data 
+```
+
+
+Before fitting the model, we use backward model selection method (metric = AIC) to aid model selection. It turns out that the the selection did not screen out any predictor using AIC metric, and we continue using the model on pooled dataset. 
+
+
+```{r, echo = FALSE}
+model_backward <- step(nhanes_log_reg,direciton='backward',trace=0)
+#model_backward$call
+
+
+nhanes_logged <- read.csv("/Users/fengyi111/Desktop/2020-Fall/702/assignment-4/nhanes.csv",header = TRUE, na.strings = c('.',NA))
+nhanes_logged = nhanes_logged[, !names(nhanes_logged) %in% c('wtmec2yr','sdmvstra','sdmvpsu','ridageyr')]
+
+nhanes_logged$riagendr <- factor(nhanes_logged$riagendr)
+nhanes_logged$ridreth2 <- factor(nhanes_logged$ridreth2)
+nhanes_logged$dmdeduc <- factor(nhanes_logged$dmdeduc)
+nhanes_logged$indfminc<- factor(nhanes_logged$indfminc)
+nhanes_logged$bmxbmi <- log(nhanes_logged$bmxbmi)
+
+```
+
+Thus, we first convert ```bmxbmi``` to log scale and conduct another multiple imputation. 
+
+```{r, echo = FALSE}
+nhanes_imp_log <- mice(nhanes_logged,m=10, defaultMethod=c("pmm","logreg","polyreg","polr"),
+                   print=F)
+```
+
+##  Pooling
+
+Then we use multiple imputation combining ruls to find point and variance estimates.
+
+```{r, echo = FALSE}
+nhanesreg_imp <- with(data=nhanes_imp_log, lm(bmxbmi~age+riagendr+ridreth2 + dmdeduc  + dmdeduc:riagendr))
+
+nhanes_overall <- pool(nhanesreg_imp)
+summary = tidy(nhanes_overall) 
+kable(summary, format='markdown', booktabs = T, linesep = "", escape = F, caption = "Final Imputation Model", digits=4)
+```
+
+Based on our model, we find that multiple predictors/levels of predictor are statistically significant for predicting ```bmxbmi```. The intercept is 2.87, meaning that for a white male aged 0 with less than high school educcation, the predicted BMI is 17.67. Holding all other variables constant, one unit increase in age will increase predicted BMI by 1.00. Holding all other variables constant but changing the gender to female will increase predicted BMI by 3.4%. Holding all other variables constant, race being Black will increase predicted BMI by 8%.Holding all other variables constant but changing the gender to female will increase predicted BMI by 3.4%. Holding all other variables constant, race being Mexican American will increase predicted BMI by 7%. Holding all other variables constant, race being other race including multi-racial will decrease predicted BMI by 4%. Holding all other variables constant, race being other Hispanic will increase predicted BMI by 1.05. Holding all other variables constant, highest level of eucation being high school diploma will increase predicted BMI by 15%. Holding all other variables constant, highest level of eucation being more than high school will increase predicted BMI by 13%. The interaction effect is statistically significant only when holding all other variables constant and the gender is female and the highest level of education is high school diploma or more than high school. Speficially, when holding all other variables constant, if gender is female and the highest level of education is high school diploma, BMI value is predicted to decrease by 4%. When holding all other variables constant, if gender is female and the highest level of education is more than high school, BMI value is predicted to decrease by 2.3%.

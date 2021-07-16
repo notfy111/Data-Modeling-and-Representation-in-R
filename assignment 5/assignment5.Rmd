@@ -1,0 +1,228 @@
+---
+title: "702 Assignment V"
+output: pdf_document
+header-includes: 
+- \usepackage{graphicx}
+- \usepackage{float}
+---
+
+# Question 1
+```{r echo=FALSE,warning=FALSE}
+ library(knitr)
+  opts_chunk$set(fig.path='figure/graphics-', 
+                 cache.path='cache/graphics-', 
+                 fig.align='center',
+                 external=TRUE,
+                 echo=TRUE,
+                 warning=FALSE,
+                 fig.pos='H'
+                )
+  a4width<- 8.3
+  a4height<- 11.7
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = NA, cache = FALSE, fig.width=5.5, fig.height=3.5)
+library(ggplot2)
+library(cobalt)
+library(broom)
+library(MatchIt)
+library(randomForest)
+
+asthma <- read.csv('/Users/fengyi111/Desktop/2020-Fall/702/assignment5/Asthma.txt',sep = " ", header = TRUE)
+```
+
+First, centered ```com_t```, ```pcs_sd```, and ```mcs_sd```, and changed the scale of ```pg``` from 1-2 to 0-1. After that, converted ```pg``` to categorical type.  
+
+```{r}
+asthma$pg <- factor(asthma$pg -1)
+
+asthma$com_t <- asthma$com_t - mean(asthma$com_t)
+asthma$pcs_sd <- asthma$pcs_sd - mean(asthma$pcs_sd)
+asthma$mcs_sd <- asthma$mcs_sd - mean(asthma$mcs_sd)
+asthma$i_sex <- factor(asthma$i_sex)
+asthma$i_race <- factor(asthma$i_race)
+asthma$i_educ <- factor(asthma$i_edu)
+asthma$i_insu <- factor(asthma$i_insu)
+asthma$i_drug <- factor(asthma$i_drug)
+asthma$i_seve <- factor(asthma$i_seve)
+```
+
+Using bal.tab and love plot, it is noticeable that ```com_t```, ```pcs_sd```, ```i_race```, and ```i_educ``` have high mean difference across physician group 0 and 1 (|mean|>0.1). Thus, it is evident that our covariates are not balanced across the two groups. Besides, treatment group has a sample size of 173 while control group has 105. In order to implement one-to-one matching, the inidicator for treatment and control group are switched such that physician group 2 becomes the control group and group 1 becomes the treatment group. This information is stored in the new indicator variable ````treatment_s````.
+
+```{r, echo = FALSE}
+# assess balance using love plot
+#bal.tab(list(treat=asthma$pg,covs=asthma[,2:11],estimand="ATT"))
+
+love.plot(list(treat=asthma$pg,covs=asthma[,2:11],estimand="ATT"),stars = "std")
+asthma$treatment_s = 0
+asthma$treatment_s[asthma$pg == 0] = 1
+asthma$treatment_s <- factor(asthma$treatment_s)
+```
+
+# Question 2
+## a
+
+After fitting a logistic regression with all pre-treatment variables as main effects to obtain propensity score `e`, we find 48 outliers. In order to ensure proper overlap, we choose to discard all 48 observations.
+
+```{r, echo = FALSE}
+cov_names <- names(asthma)
+p_formula <- as.formula(paste("treatment_s ~",
+                              paste(cov_names[!cov_names %in% c("i_aqoc","pg","treatment_s")],
+                                    collapse = " + ")))
+pscorereg <- glm(p_formula,data = asthma, family=binomial)
+pscores <- predict(pscorereg, type = "response")
+#Check number of observations outside of the overlap region between the two groups
+#First the left tails
+left <- sum(pscores < max(min(pscores[asthma$treatment_s==0]),
+                  min(pscores[asthma$treatment==1])))
+#Next the right tails
+right <- sum(pscores > min(max(pscores[asthma$treatment_s==0]),
+                  max(pscores[asthma$treatment_s==1])))
+
+# 40 outliers from the left tail and 8 from the right tail
+
+#If there are "outliers",
+#get row index for observations that violate overlap.
+index <- which((pscores < max(min(pscores[asthma$treatment_s==0]),
+                              min(pscores[asthma$treatment_s==1])) |
+                  pscores > min(max(pscores[asthma$treatment_s==0]),
+                                max(pscores[asthma$treatment_s==1]))) == TRUE)
+asthma_bal <- asthma[-index,]; pscores <- pscores[-index]
+
+#summary(pscores)
+#ggplot(asthma, aes(pscores)) +
+ # geom_histogram(alpha=.6,fill=rainbow(10),bins=10)
+
+# density plot looks well
+#ggplot(asthma, aes(x=pscores, fill=treatment_s)) +
+ # geom_density(alpha=.3) +
+  #xlim(0, 1)
+
+```
+
+## b
+
+Using one-to-one, nearest neighbor matching on the estimated propensity scores to match observations from treatment group and control group in order to balance covariates. After checking balance again, we find that most of covariates have mean difference less than 0.1, except ```i_educ_4```, ```com_t```, and ```pcs_sd```. 
+
+```{r, echo = FALSE}
+matchesAsthma <- matchit(p_formula,
+                     method = "nearest", distance = "logit", data = asthma_bal)
+#matchesAsthma$match.matrix
+#matchesAsthma$nn
+asthmamatcheddata <- match.data(matchesAsthma)
+
+#ggplot(asthmamatcheddata, aes(y=distance, x=treatment_s, fill=treatment_s)) +
+ # geom_boxplot()
+# check covariates again
+# i_educ 4, com_t, pcs_sd are larger than 0.1
+#bal.tab(list(treat=asthmamatcheddata$treatment_s,covs=asthmamatcheddata[,2:11],estimand="ATT"))
+love.plot(list(treat=asthmamatcheddata$treatment_s,covs=asthmamatcheddata[,2:11],estimand="ATT"),stars = "std")
+```
+
+## c 
+
+After calculating `p1` - `p2` using matched data, we know that the average causal effect is 0.155, with a standard error of 0.065. This means that the difference in the proportion of patients being satisfied in the treatment group (physician group 1) is 15.5% higher than that in the control group (physician group 2).  Based the results, our 95% confidence interval for the average causal effect is from 2.8% to 28.2%. 
+This means that we are 95% confident that the true difference of proportion of patients being satisfied in the treatment versus control physician group is between 2.8% and 28.2%. Since this interval does not include 0, we can reject the null hypothesis.
+
+```{r, echo=FALSE}
+# calculate average causal effect; create standard error estimate; construct a 95% CI
+avgeffect <- mean(asthmamatcheddata$i_aqoc[asthmamatcheddata$treatment_s == 1]) - 
+          mean(asthmamatcheddata$i_aqoc[asthmamatcheddata$treatment_s == 0])
+# standard error of difference
+se <- sqrt(var(asthmamatcheddata$i_aqoc[asthmamatcheddata$treatment_s == 1])/97 + 
+             var(asthmamatcheddata$i_aqoc[asthmamatcheddata$treatment_s == 0])/97)
+# confidence interval of average causal effect
+# interpretation: we are 95% confident that the true difference between treatment and control is between 0.0276 and 0.2816.
+# since this interval does not include 0, we can reject the null hypothesis
+# and our average causa effect is statisticaly significant
+upper <- avgeffect + 1.96 * se
+lower <- avgeffect - 1.96 * se
+```
+
+## d
+
+The logistic regression model shows that the coefficient for ```treatment_s``` (the indicator variable for treatment and control group) is 0.92033, meaning that the causal odds ratio of having satisfaction = 1 being in the treatment group is 1.51 times than that of the control group, holding other variables constant. 
+
+```{r, echo = FALSE}
+regmodel <- glm(i_aqoc ~ i_age+i_sex+i_race+i_educ+i_insu+i_drug+i_seve+mcs_sd+com_t+pcs_sd+distance+ treatment_s, family = binomial,
+               data=asthmamatcheddata)
+summary = tidy(regmodel)
+# turn out the log causal effect is statistically significnat with a coefficient 0.92033
+# causal odds ratio is 2.51
+kable(summary)
+causalOR <- exp(0.92033)
+# caulssal odds ratio is 2.51, meaing that the causal effect of having satisfaction == 1 being in the treatment group is 151% times than that of the control group. 
+```
+
+## e
+
+## e. b
+
+Using one-to-five, nearest-neighbor matching, we also find imbalance of covariates given that ```i_educ 4```, ```com_t```, ```pcs_sd```  with mean differences larger than 0.1
+
+```{r, echo = FALSE}
+### b ###
+# Using one-to-5, nearest neighbor matching on the estimated propensity scores, check balance again
+matchesAsthmaRplc <- matchit(p_formula,
+                         method = "nearest", distance = "logit", data = asthma_bal,  replace=TRUE,ratio =5)
+#matchesAsthmaRplc$match.matrix
+#matchesAsthmaRplc$nn
+asthmamatcheddataRplc <- match.data(matchesAsthmaRplc)
+
+#ggplot(asthmamatcheddataRplc, aes(y=distance, x=treatment_s, fill=treatment_s)) +
+ # geom_boxplot()
+# check covariates again
+# i_educ 4, com_t, pcs_sd also larger than 0.1
+#bal.tab(list(treat=asthmamatcheddataRplc$treatment_s,covs=asthmamatcheddataRplc[,2:11],estimand="ATT"))
+love.plot(list(treat=asthmamatcheddataRplc$treatment_s,covs=asthmamatcheddataRplc[,2:11],estimand="ATT"),stars = "std")
+```
+
+
+## e.c
+
+After calculating `p1` - `p2` using one-to-five, with-replacement matched data, we know that the average causal effect is 0.166, with a standard error of 0.064. This means that the difference in proportion of patients being satisfied in the treatment group (physician group 1) is 16.6% higher than that in the control group (physician group 2).  Based the results, our 95% confidence interval for the average causal effect is from 2.9% to 28%. 
+This means that we are 95% confident that the true difference of proportion of patients being satisfied in the treatment versus control physician group is between 2.9% and 28%. Since this interval does not include 0, we can reject the null hypothesis.
+Although there is slight difference in number, the conclusion of average causal effect drawn from this data is the same with that from the one-to-one, with-replacement data. 
+
+```{r, echo = FALSE}
+### c ###
+# calculate average causal effect; create standard error estimate; construct a 95% CI
+avgeffectRplc <- mean(asthmamatcheddataRplc$i_aqoc[asthmamatcheddataRplc$treatment_s == 1]) - 
+  mean(asthmamatcheddataRplc$i_aqoc[asthmamatcheddataRplc$treatment_s == 0])
+# standard error of difference of proportion of patients who were satisfied with the physician
+se2 <- sqrt(var(asthmamatcheddataRplc$i_aqoc[asthmamatcheddataRplc$treatment_s == 1])/97 + 
+             var(asthmamatcheddataRplc$i_aqoc[asthmamatcheddataRplc$treatment_s == 0])/102)
+# confidence interval of average causal effect
+# interpretation: we are 95% confident that the true difference of proportion of patients who were satisfied between treatment and control is between 2.9% and 28%
+# since this interval does not include 0, we can reject the null hypothesis
+# and our average causa effect is statisticaly significant
+upperRplc <- avgeffect + 1.96 * se2
+lowerRplc <- avgeffect - 1.96 * se2
+```
+
+
+## e.d
+
+
+The logistic regression model on one-to-five, with-replacement matched data shows that the coefficient for ```treatment_s``` (the indicator variable for treatment and control group) is 0.8779, meaning that the causal odds ratio of having satisfaction = 1 being in the treatment group (physician group 1) is 1.405 times hgiher than that of the control group (physician group 2), holding other variables constant. 
+
+Compared to the 1.51 causal odds ratio obtained from the one-to-one, without-replacement data, the new matched data offers a smaller causal effect estimate.  
+```{r, echo=FALSE}
+
+### d ###
+regmodelRplc <- glm(i_aqoc ~ i_age+i_sex+i_race+i_educ+i_insu+i_drug+i_seve+mcs_sd+com_t+pcs_sd+distance+ treatment_s, family = binomial,
+                data=asthmamatcheddataRplc)
+summary2 = tidy(regmodelRplc)
+# turn out the log causal effect is statistically significnat with a coefficient 0.92033
+# causal odds ratio is 2.51
+kable(summary2)# turn out the log causal effect is statistically significnat with a coefficient 0.87791
+# causal odds ratio is 2.405
+causalRplc <- exp(0.87791)
+# caulssal odds ratio is 2.405, meaing that the causal effect of having satisfaction == 1 being in the treatment group is 1.405 times than that of the control group. 
+
+```
+
+# Question 3 
+
+Between using one-to-one, without-replacement or one-to-many, with-replacement method for estimating causal effects, I feel more comfortable using the former. This is because that allowing one-to-many and replacement will inevitably lead to an over-representation of certain control-group observations, since given their attributes they can be matched to different treatment observations. Comparing calculating average causal effect using mean of proportion and logistic regression, I prefer the latter given that it provides an estimate while controlling for other covariates. 
